@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Traffic AI — World Prediction System</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0}
+/* ── Header ── */
+header{height:52px;background:#1e293b;border-bottom:1px solid #334155;display:flex;align-items:center;padding:0 18px;gap:16px;flex-shrink:0;position:relative;z-index:1100}
+header .logo{font-size:1.15rem;font-weight:800;color:#fff;white-space:nowrap}
+header .logo span{color:#38bdf8}
+.tabs{display:flex;gap:4px}
+.tab-btn{padding:6px 16px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:0.85rem;font-weight:600;cursor:pointer;transition:all .15s}
+.tab-btn.active{background:#0ea5e9;border-color:#0ea5e9;color:#fff}
+.tab-btn:hover:not(.active){background:#1e293b;color:#e2e8f0}
+header .sub{font-size:0.78rem;color:#64748b;margin-left:auto}
+
+/* ── Map Tab ── */
+#tab-map{display:flex;height:calc(100vh - 52px)}
+#map{flex:1}
+/* floating panel */
+#map-panel{width:360px;background:#1e293b;border-left:1px solid #334155;display:flex;flex-direction:column;overflow-y:auto;transition:width .2s}
+#map-panel.hidden{width:0;overflow:hidden;border:none}
+.panel-inner{padding:18px;min-width:360px}
+.hint-overlay{position:absolute;bottom:70px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,.92);padding:9px 20px;border-radius:99px;font-size:0.82rem;color:#94a3b8;pointer-events:none;z-index:500;border:1px solid #334155;white-space:nowrap}
+
+/* ── Manual Tab ── */
+#tab-manual{display:none;overflow-y:auto;height:calc(100vh - 52px)}
+.page{max-width:820px;margin:0 auto;padding:28px 20px 60px}
+.card{background:#1e293b;border-radius:16px;padding:26px;margin-bottom:22px;box-shadow:0 4px 24px rgba(0,0,0,.3)}
+.card h2{font-size:1.05rem;font-weight:700;margin-bottom:20px;color:#f1f5f9}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:600px){.grid{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:0.78rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px}
+.field .hint{font-size:0.72rem;color:#475569}
+input[type=range]{-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:#334155;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:#38bdf8;cursor:pointer;border:2px solid #0f172a}
+select,input[type=number]{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px;color:#e2e8f0;font-size:0.92rem;outline:none}
+select:focus,input[type=number]:focus{border-color:#38bdf8}
+.state-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px}
+.state-btn{border:2px solid #334155;border-radius:10px;padding:10px 4px;text-align:center;cursor:pointer;background:#0f172a;user-select:none}
+.state-btn .icon{font-size:1.3rem}
+.state-btn .lbl{font-size:0.7rem;font-weight:600;margin-top:3px;color:#94a3b8}
+.state-btn.s0{border-color:#22c55e;background:#052e16}.state-btn.s1{border-color:#eab308;background:#1c1500}
+.state-btn.s2{border-color:#f97316;background:#1c0d00}.state-btn.s3{border-color:#ef4444;background:#1c0505}
+.toggle-row{display:flex;align-items:center;gap:10px;padding:8px 0}
+.toggle{position:relative;display:inline-block;width:44px;height:24px}
+.toggle input{opacity:0;width:0;height:0}
+.slider-tog{position:absolute;inset:0;background:#334155;border-radius:24px;cursor:pointer;transition:.2s}
+.slider-tog:before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+input:checked+.slider-tog{background:#ef4444}
+input:checked+.slider-tog:before{transform:translateX(20px)}
+.predict-btn{width:100%;padding:13px;background:linear-gradient(135deg,#0ea5e9,#6366f1);border:none;border-radius:12px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer;margin-top:10px}
+.predict-btn:disabled{opacity:.45;cursor:not-allowed}
+.spinner-txt{display:none;text-align:center;padding:10px;color:#94a3b8;font-size:0.87rem}
+
+/* ── Shared result styles ── */
+.state-banner{border-radius:12px;padding:18px;text-align:center;margin-bottom:16px}
+.state-label{font-size:1.6rem;font-weight:800}
+.conf-line{font-size:0.82rem;opacity:.8;margin-top:4px}
+.banner-free{background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #22c55e}
+.banner-moderate{background:linear-gradient(135deg,#1c1500,#3f2700);border:1px solid #eab308}
+.banner-heavy{background:linear-gradient(135deg,#1c0d00,#431407);border:1px solid #f97316}
+.banner-jam{background:linear-gradient(135deg,#1c0505,#450a0a);border:1px solid #ef4444}
+.nl-box{background:#0f172a;border-left:3px solid #38bdf8;border-radius:8px;padding:13px;font-size:0.86rem;line-height:1.65;color:#cbd5e1;margin-bottom:14px}
+.nl-box strong{color:#38bdf8;display:block;margin-bottom:4px}
+.ctx-badge{display:inline-block;background:#1e3a5f;color:#7dd3fc;border:1px solid #1d4ed8;border-radius:20px;padding:4px 12px;font-size:0.78rem;font-weight:600;margin-bottom:14px}
+.sec-title{font-size:0.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#64748b;margin-bottom:10px}
+.prob-row{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.prob-lbl{width:76px;font-size:0.82rem;font-weight:600;flex-shrink:0}
+.prob-track{flex:1;height:9px;background:#0f172a;border-radius:5px;overflow:hidden}
+.prob-fill{height:100%;border-radius:5px;transition:width .55s ease}
+.prob-pct{width:40px;text-align:right;font-size:0.82rem;font-weight:700;flex-shrink:0}
+.fill-free{background:#22c55e}.fill-moderate{background:#eab308}
+.fill-heavy{background:#f97316}.fill-jam{background:#ef4444}
+.weight-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.wcard{background:#0f172a;border-radius:9px;padding:11px}
+.wcard .wname{font-size:0.74rem;color:#94a3b8;font-weight:600}
+.wcard .wval{font-size:1rem;font-weight:800;color:#e2e8f0;margin-top:2px}
+.wcard.lead .wval{color:#818cf8}
+.wcard .wbar{height:4px;background:#1e293b;border-radius:2px;margin-top:5px;overflow:hidden}
+.wcard .wbar-fill{height:100%;background:#6366f1;border-radius:2px;transition:width .55s ease}
+.err-box{background:#2d0707;border:1px solid #ef4444;border-radius:9px;padding:13px;color:#fca5a5;font-size:0.86rem;margin-top:10px}
+.source-tag{font-size:0.72rem;color:#475569;margin-top:8px;text-align:right}
+.loading-state{padding:20px;text-align:center;color:#94a3b8;font-size:0.88rem}
+.road-title{font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:2px}
+.coord-sub{font-size:0.75rem;color:#64748b;margin-bottom:14px}
+
+/* ── Algorithms Tab ── */
+#tab-algo{display:none;overflow-y:auto;height:calc(100vh - 52px)}
+.algo-page{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+.algo-page h1{font-size:1.4rem;font-weight:800;color:#f1f5f9;margin-bottom:6px}
+.algo-page .intro{font-size:0.9rem;color:#94a3b8;line-height:1.7;margin-bottom:32px;max-width:720px}
+.algo-card{background:#1e293b;border-radius:18px;padding:28px 30px;margin-bottom:28px;box-shadow:0 4px 32px rgba(0,0,0,.35);border:1px solid #334155;position:relative;overflow:hidden}
+.algo-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px}
+.algo-card.ac-markov::before{background:linear-gradient(90deg,#06b6d4,#0284c7)}
+.algo-card.ac-rf::before{background:linear-gradient(90deg,#10b981,#059669)}
+.algo-card.ac-lstm::before{background:linear-gradient(90deg,#8b5cf6,#7c3aed)}
+.algo-card.ac-bayes::before{background:linear-gradient(90deg,#f59e0b,#d97706)}
+.algo-card .ac-header{display:flex;align-items:flex-start;gap:16px;margin-bottom:18px}
+.algo-card .ac-icon{font-size:2.2rem;flex-shrink:0;line-height:1}
+.algo-card .ac-title{font-size:1.2rem;font-weight:800;color:#f1f5f9}
+.algo-card .ac-sub{font-size:0.82rem;color:#64748b;margin-top:3px}
+.algo-card .ac-body{font-size:0.88rem;color:#cbd5e1;line-height:1.75}
+.algo-card .ac-body p{margin-bottom:10px}
+.algo-card .ac-body strong{color:#f1f5f9}
+.math-block{background:#0f172a;border-radius:10px;padding:14px 16px;margin:12px 0;border-left:3px solid #6366f1;font-family:'Courier New',Courier,monospace;font-size:0.85rem;color:#a5b4fc;line-height:1.85;white-space:pre}
+.math-block .math-label{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:0.72rem;text-transform:uppercase;letter-spacing:.6px;color:#475569;font-weight:700;margin-bottom:6px}
+.math-block.mb-cyan{border-color:#06b6d4;color:#67e8f9}
+.math-block.mb-green{border-color:#10b981;color:#6ee7b7}
+.math-block.mb-purple{border-color:#8b5cf6;color:#c4b5fd}
+.math-block.mb-amber{border-color:#f59e0b;color:#fcd34d}
+.prob-pill{display:inline-block;background:#1e3a5f;color:#7dd3fc;border:1px solid #1d4ed8;border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:700;margin:2px 3px}
+.prob-pill.pp-green{background:#052e16;color:#6ee7b7;border-color:#059669}
+.prob-pill.pp-purple{background:#2e1065;color:#c4b5fd;border-color:#7c3aed}
+.prob-pill.pp-amber{background:#2d1a00;color:#fcd34d;border-color:#d97706}
+.concept-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin:12px 0}
+.concept-tag{background:#0f172a;border-radius:9px;padding:10px 13px;border:1px solid #334155}
+.concept-tag .ct-label{font-size:0.72rem;text-transform:uppercase;letter-spacing:.5px;font-weight:700;color:#64748b;margin-bottom:3px}
+.concept-tag .ct-val{font-size:0.84rem;color:#e2e8f0;font-weight:600}
+.use-cases{margin-top:14px}
+.use-cases .uc-title{font-size:0.74rem;text-transform:uppercase;letter-spacing:.6px;font-weight:700;color:#64748b;margin-bottom:8px}
+.uc-grid{display:flex;flex-wrap:wrap;gap:7px}
+.uc-chip{display:flex;align-items:center;gap:6px;background:#0f172a;border-radius:8px;padding:6px 11px;font-size:0.79rem;font-weight:600;color:#e2e8f0;border:1px solid #334155}
+.uc-chip.best{border-color:#22c55e;color:#6ee7b7;background:#052e16}
+.uc-chip.good{border-color:#eab308;color:#fcd34d;background:#1c1500}
+/* syllabus tags */
+.syllabus-section{margin-top:18px;background:#0f172a;border-radius:12px;padding:14px 16px;border:1px solid #1e3a5f}
+.syllabus-section .syl-title{font-size:0.72rem;text-transform:uppercase;letter-spacing:.6px;font-weight:700;color:#38bdf8;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.syllabus-section .syl-desc{font-size:0.78rem;color:#94a3b8;font-style:italic;margin:0 0 10px;line-height:1.5}
+.concept-bullets{margin:8px 0 0 0;padding-left:18px;list-style:disc}
+.concept-bullets li{font-size:0.8rem;color:#cbd5e1;line-height:1.6;margin-bottom:5px}
+.concept-bullets li strong{color:#7dd3fc}
+.syl-tags{display:flex;flex-wrap:wrap;gap:7px}
+.syl-tag{display:inline-flex;align-items:center;gap:5px;border-radius:8px;padding:5px 10px;font-size:0.78rem;font-weight:600;border:1px solid}
+.syl-tag.m2{background:#0c2340;color:#7dd3fc;border-color:#1d4ed8}
+.syl-tag.m1{background:#1a1a0f;color:#fde68a;border-color:#92400e}
+.syl-tag.m3{background:#0d2618;color:#6ee7b7;border-color:#065f46}
+.syl-tag.m4{background:#1f0d30;color:#d8b4fe;border-color:#6d28d9}
+.syl-tag.m5{background:#1f1000;color:#fdba74;border-color:#c2410c}
+.syl-tag.m6{background:#1a0d0d;color:#fca5a5;border-color:#b91c1c}
+.syl-tag.m7{background:#0f1f1f;color:#5eead4;border-color:#0f766e}
+.syl-tag .mod-badge{background:rgba(255,255,255,.12);border-radius:4px;padding:1px 5px;font-size:0.7rem;font-weight:800}
+.algo-compare{background:#1e293b;border-radius:18px;padding:28px 30px;margin-bottom:28px;border:1px solid #334155}
+.algo-compare h2{font-size:1.05rem;font-weight:700;color:#f1f5f9;margin-bottom:18px}
+.compare-table{width:100%;border-collapse:collapse;font-size:0.83rem}
+.compare-table th{background:#0f172a;color:#94a3b8;font-weight:700;padding:10px 14px;text-align:left;border-bottom:1px solid #334155}
+.compare-table td{padding:10px 14px;border-bottom:1px solid #1e293b;color:#cbd5e1;vertical-align:top}
+.compare-table tr:last-child td{border-bottom:none}
+.compare-table .model-col{font-weight:700;color:#f1f5f9;white-space:nowrap}
+.badge-best{background:#052e16;color:#6ee7b7;border:1px solid #059669;border-radius:6px;padding:2px 8px;font-size:0.75rem;font-weight:700}
+.badge-good{background:#1c1500;color:#fcd34d;border:1px solid #ca8a04;border-radius:6px;padding:2px 8px;font-size:0.75rem;font-weight:700}
+.ensemble-note{background:#1e1b4b;border:1px solid #4338ca;border-radius:12px;padding:18px 20px;margin-top:18px;font-size:0.86rem;color:#a5b4fc;line-height:1.7}
+.ensemble-note strong{color:#e0e7ff}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">&#x1F6A6; Traffic <span>AI</span></div>
+  <div class="tabs">
+    <button class="tab-btn active" id="tbMap" onclick="switchTab('map')">&#x1F5FA; World Map</button>
+    <button class="tab-btn" id="tbManual" onclick="switchTab('manual')">&#x1F4DD; Manual Input</button>
+    <button class="tab-btn" id="tbAlgo" onclick="switchTab('algo')">&#x1F4CA; Algorithms</button>
+  </div>
+  <div class="sub">Click any road on the map &mdash; live AI prediction in seconds</div>
+</header>
+
+<!-- ═══════════════════ MAP TAB ═══════════════════ -->
+<div id="tab-map">
+  <div id="map"></div>
+  <div id="map-panel" class="hidden">
+    <div class="panel-inner">
+      <div class="loading-state" id="mp-loading">&#x23F3; Fetching live data &amp; running AI&hellip;</div>
+      <div id="mp-content" style="display:none">
+        <div class="road-title" id="mp-road"></div>
+        <div class="coord-sub" id="mp-coords"></div>
+        <div id="mp-banner" class="state-banner"></div>
+        <div class="nl-box"><strong>What does this mean?</strong><span id="mp-nl"></span></div>
+        <div id="mp-ctx" class="ctx-badge"></div>
+        <div class="sec-title" style="margin-top:4px">Probability of Each State</div>
+        <div id="mp-probs"></div>
+        <div class="sec-title" style="margin-top:14px">Model Contributions</div>
+        <div class="weight-grid" id="mp-weights"></div>
+      </div>
+      <div class="err-box" id="mp-err" style="display:none"></div>
+    </div>
+  </div>
+  <div class="hint-overlay" id="map-hint">&#x1F4CD; Click any road or city on the map to predict traffic</div>
+</div>
+
+<!-- ═══════════════════ MANUAL TAB ═══════════════════ -->
+<div id="tab-manual">
+  <div class="page">
+    <div class="card">
+      <h2>&#x1F4CD; Enter Road Conditions</h2>
+      <div class="grid">
+        <div class="field">
+          <label>Road ID</label>
+          <input type="number" id="m-road_id" value="142" min="1"/>
+          <span class="hint">Any number identifying the road</span>
+        </div>
+        <div class="field">
+          <label>Weather</label>
+          <select id="m-weather">
+            <option value="clear">&#x2600;&#xFE0F; Clear / Sunny</option>
+            <option value="cloudy">&#x26C5; Cloudy</option>
+            <option value="fog">&#x1F32B;&#xFE0F; Foggy</option>
+            <option value="rain" selected>&#x1F327;&#xFE0F; Rain</option>
+            <option value="snow">&#x2744;&#xFE0F; Snow</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Avg Speed &mdash; <span id="m-speed-lbl">24 km/h</span></label>
+          <input type="range" id="m-avg_speed" min="0" max="120" value="24"
+                 oninput="document.getElementById('m-speed-lbl').textContent=this.value+' km/h'"/>
+          <span class="hint">How fast vehicles are moving</span>
+        </div>
+        <div class="field">
+          <label>Vehicle Count &mdash; <span id="m-count-lbl">210</span></label>
+          <input type="range" id="m-vehicle_count" min="0" max="400" value="210"
+                 oninput="document.getElementById('m-count-lbl').textContent=this.value"/>
+          <span class="hint">Vehicles observed in the last 5 min</span>
+        </div>
+        <div class="field">
+          <label>Hour of Day &mdash; <span id="m-hour-lbl">8:00 AM</span></label>
+          <input type="range" id="m-hour" min="0" max="23" value="8"
+                 oninput="mUpdateHour(this.value)"/>
+          <span class="hint">Drag to change time of day</span>
+        </div>
+        <div class="field">
+          <label>Accident on Road?</label>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" id="m-accident"/>
+              <span class="slider-tog"></span>
+            </label>
+            <span style="font-size:0.88rem;color:#94a3b8">Toggle on if accident is active</span>
+          </div>
+        </div>
+      </div>
+      <div class="field" style="margin-top:16px">
+        <label>Previous Traffic State</label>
+        <div class="state-grid">
+          <div class="state-btn" id="ms0" onclick="mSelectState(0)"><div class="icon">&#x1F7E2;</div><div class="lbl">Free</div></div>
+          <div class="state-btn s1" id="ms1" onclick="mSelectState(1)"><div class="icon">&#x1F7E1;</div><div class="lbl">Moderate</div></div>
+          <div class="state-btn" id="ms2" onclick="mSelectState(2)"><div class="icon">&#x1F7E0;</div><div class="lbl">Heavy</div></div>
+          <div class="state-btn" id="ms3" onclick="mSelectState(3)"><div class="icon">&#x1F534;</div><div class="lbl">Jam</div></div>
+        </div>
+      </div>
+      <button class="predict-btn" id="m-btn" onclick="mPredict()">&#x1F9E0; Predict Traffic</button>
+      <div class="spinner-txt" id="m-spinner">&#x23F3; Consulting 4 AI models&hellip;</div>
+      <div class="err-box" id="m-err" style="display:none"></div>
+    </div>
+
+    <div id="m-result" style="display:none">
+      <div id="m-banner" class="state-banner"></div>
+      <div class="card">
+        <div class="nl-box"><strong>What does this mean?</strong><span id="m-nl"></span></div>
+        <div id="m-ctx" class="ctx-badge"></div>
+        <div class="sec-title">Probability of Each State</div>
+        <div id="m-probs"></div>
+        <div class="sec-title" style="margin-top:16px">Model Contributions</div>
+        <div class="weight-grid" id="m-weights"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ALGORITHMS TAB ═══════════════════ -->
+<div id="tab-algo">
+<div class="algo-page">
+  <h1>&#x1F4CA; How Each Algorithm Works</h1>
+  <p class="intro">Four AI models run in parallel on every prediction. Each one looks at traffic differently. Tags marked <span style="color:#38bdf8;font-weight:700">&#x1F4DA; In Your Syllabus</span> show where these ideas appear directly in your course.</p>
+
+  <!-- ══ MARKOV CHAIN ══ -->
+  <div class="algo-card ac-markov">
+    <div class="ac-header">
+      <div class="ac-icon">&#x1F500;</div>
+      <div>
+        <div class="ac-title">Markov Chain</div>
+        <div class="ac-sub">&#x22;What happens next depends only on what&rsquo;s happening right now.&#x22;</div>
+      </div>
+    </div>
+    <div class="ac-body">
+      <p>Imagine traffic has 4 states: Free, Moderate, Heavy, Jam. A Markov Chain is just a <strong>table of probabilities</strong> that says &ldquo;if traffic is X now, how likely is it to be Y in the next minute?&rdquo; That&rsquo;s it &mdash; no memory of yesterday, just the current moment.</p>
+      <div class="math-block mb-cyan"><div class="math-label">The core idea &mdash; Conditional Probability (Module 2, Topic 7)</div>P(next state = Jam | current state = Heavy)  =  0.20
+P(next state = Heavy | current state = Heavy)  =  0.55
+&rarr; These are just conditional probabilities from your syllabus!</div>
+      <p>The full table is a <strong>4&times;4 transition matrix</strong>. Each row is a <strong>Probability Mass Function</strong> (sums to 1.0) over the four possible next states. At runtime, weights shift if speed is low or weather is bad.</p>
+      <div class="math-block mb-cyan"><div class="math-label">Transition matrix  (each row = a PMF &mdash; Module 2, Topic 2)</div>         Free   Mod   Heavy   Jam
+Free   [ 0.70  0.20   0.07   0.03 ]   &larr; row sums to 1.0
+Heavy  [ 0.05  0.20   0.55   0.20 ]   &larr; row sums to 1.0</div>
+      <div class="concept-grid">
+        <div class="concept-tag"><div class="ct-label">Model type</div><div class="ct-val">Probabilistic table</div></div>
+        <div class="concept-tag"><div class="ct-label">Memory</div><div class="ct-val">Just current state</div></div>
+        <div class="concept-tag"><div class="ct-label">Output</div><div class="ct-val">4 probabilities (PMF)</div></div>
+        <div class="concept-tag"><div class="ct-label">Training</div><div class="ct-val">None needed</div></div>
+      </div>
+      <div class="use-cases">
+        <div class="uc-title">Best traffic contexts</div>
+        <div class="uc-grid">
+          <div class="uc-chip best">&#x1F319; Night &mdash; Low Traffic</div>
+          <div class="uc-chip best">&#x2705; Normal Conditions</div>
+          <div class="uc-chip good">&#x1F4C9; Slow, steady roads</div>
+        </div>
+      </div>
+      <div class="syllabus-section">
+        <div class="syl-title">&#x1F4A1; Concepts Used</div>
+        <ul class="concept-bullets">
+          <li><strong>Random Variables — M2 Topic 1</strong> — Markov Chain represents each traffic condition (free/moderate/heavy/jam) as a value of a discrete random variable.</li>
+          <li><strong>Probability Mass Function — M2 Topic 2</strong> — Each row of the Markov Chain transition matrix is a PMF listing the probability of moving to every possible next state.</li>
+          <li><strong>Conditional Probability — M2 Topic 7</strong> — The Markov Chain's core rule is P(next&nbsp;|&nbsp;current) — a conditional distribution computed at every time step.</li>
+          <li><strong>Marginal Probability — M2 Topic 6</strong> — The Markov Chain's long-run steady-state is found by computing the marginal distribution via repeated matrix multiplication.</li>
+          <li><strong>Discrete Distributions — M4 Topic 1</strong> — Every prediction Markov Chain makes is a discrete PMF assigning a probability to each of the 4 traffic states.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RANDOM FOREST ══ -->
+  <div class="algo-card ac-rf">
+    <div class="ac-header">
+      <div class="ac-icon">&#x1F333;</div>
+      <div>
+        <div class="ac-title">Random Forest</div>
+        <div class="ac-sub">&#x22;150 decision trees vote &mdash; majority wins.&#x22;</div>
+      </div>
+    </div>
+    <div class="ac-body">
+      <p>A Random Forest grows 150 decision trees, each trained on a slightly different random sample of data. Each tree looks at speed, vehicle count, time, weather, and accident flag, then votes on the traffic class. The <strong>final probability = fraction of trees that voted for each class</strong>. More agreement = higher confidence.</p>
+      <div class="math-block mb-green"><div class="math-label">Probability = vote fraction (relates to PMF &mdash; Module 2, Topic 2)</div>P(class = Jam | inputs)  =  (trees that voted Jam) / 150
+e.g.  102 out of 150 trees say Jam  &rarr;  P(Jam) = 0.68</div>
+      <p>Each tree splits data using <strong>Gini Impurity</strong> &mdash; a measure of how &ldquo;mixed&rdquo; a group is. This is mathematically identical to variance/dispersion from your stats module &mdash; lower Gini = more pure = a good split.</p>
+      <div class="math-block mb-green"><div class="math-label">Gini Impurity &mdash; same idea as Dispersion (Module 1, Topic 3)</div>Gini = 1 &minus; &Sigma; p_c&sup2;       (0 = perfectly pure, 0.75 = max mixed)
+If a node is all-Jam: Gini = 1 &minus; 1&sup2; = 0   &larr; best possible split</div>
+      <div class="concept-grid">
+        <div class="concept-tag"><div class="ct-label">Trees</div><div class="ct-val">150 estimators</div></div>
+        <div class="concept-tag"><div class="ct-label">Features</div><div class="ct-val">5 input signals</div></div>
+        <div class="concept-tag"><div class="ct-label">Probability</div><div class="ct-val">Vote fraction (PMF)</div></div>
+        <div class="concept-tag"><div class="ct-label">Split rule</div><div class="ct-val">Min Gini impurity</div></div>
+      </div>
+      <div class="use-cases">
+        <div class="uc-title">Best traffic contexts</div>
+        <div class="uc-grid">
+          <div class="uc-chip best">&#x26A0;&#xFE0F; Accident Events</div>
+          <div class="uc-chip best">&#x1F327; Weather Events</div>
+          <div class="uc-chip good">&#x1F4CA; Complex feature combinations</div>
+        </div>
+      </div>
+      <div class="syllabus-section">
+        <div class="syl-title">&#x1F4A1; Concepts Used</div>
+        <ul class="concept-bullets">
+          <li><strong>Measures of Dispersion — M1 Topic 3</strong> — Random Forest splits nodes using Gini Impurity, a measure of label spread that is mathematically identical to variance.</li>
+          <li><strong>Conditional Probability — M2 Topic 7</strong> — Random Forest outputs P(class&nbsp;|&nbsp;inputs) — a conditional distribution over traffic states given the feature values.</li>
+          <li><strong>Mathematical Expectation — M2 Topic 8</strong> — The forest's final probability is the expected class across 150 tree votes, a direct application of expectation.</li>
+          <li><strong>Correlation &amp; Feature Importance — M3 Topic 2</strong> — Random Forest ranks which features (speed, density, weather) most correlate with the traffic outcome.</li>
+          <li><strong>Analysis of Variance — M6 Topics 7&ndash;9</strong> — Each Random Forest split minimises within-group variance — the exact same goal as ANOVA.</li>
+          <li><strong>Chi-Square Independence — M6 Topic 5</strong> — Random Forest implicitly tests whether input features are independent of the output class, mirroring the chi-square test.</li>
+        </ul>
+        <div class="syl-tags" style="display:none">
+          <span class="syl-tag m1"><span class="mod-badge">M1</span> Measures of Dispersion (Topic 3)</span>
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Conditional Probability Distributions (Topic 7)</span>
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Mathematical Expectation (Topic 8)</span>
+          <span class="syl-tag m3"><span class="mod-badge">M3</span> Correlation &amp; Feature Importance (Topic 2)</span>
+          <span class="syl-tag m6"><span class="mod-badge">M6</span> Analysis of Variance &mdash; variance reduction at splits (Topics 7&ndash;9)</span>
+          <span class="syl-tag m6"><span class="mod-badge">M6</span> Chi-Square: Independence of Attributes (Topic 5)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ LSTM ══ -->
+  <div class="algo-card ac-lstm">
+    <div class="ac-header">
+      <div class="ac-icon">&#x1F9E0;</div>
+      <div>
+        <div class="ac-title">LSTM Neural Network</div>
+        <div class="ac-sub">&#x22;It remembers the last 6 minutes of traffic and spots patterns over time.&#x22;</div>
+      </div>
+    </div>
+    <div class="ac-body">
+      <p>An LSTM is a neural network with a built-in <strong>memory cell</strong>. It reads the last 6 timesteps of traffic data in order and learns patterns like &ldquo;density has been climbing for 6 straight minutes &rarr; jam is coming.&rdquo; That's something a snapshot model simply cannot do.</p>
+      <div class="math-block mb-purple"><div class="math-label">Output = Softmax &mdash; turns raw scores into a probability distribution (Module 2, Topic 5 / Module 4)</div>P(class = c | sequence) = exp(score_c) / &Sigma; exp(score_j)
+&rarr; all 4 probabilities sum to 1.0  (a valid PMF over traffic states)
+&rarr; same as a discrete probability distribution from Module 4</div>
+      <p>The network has four <strong>gates</strong> (forget, input, cell, output) that decide what to remember and what to discard at each step. Think of them as a smart highlighter that keeps the important trend and ignores noise.</p>
+      <div class="math-block mb-purple"><div class="math-label">Forget gate &mdash; decides what old info to erase</div>f_t = &sigma;( weights &middot; [last_hidden, current_input] )
+&sigma; = sigmoid  &rarr; output is always between 0 and 1
+0 = forget everything,  1 = keep everything</div>
+      <div class="concept-grid">
+        <div class="concept-tag"><div class="ct-label">Sequence length</div><div class="ct-val">6 timesteps</div></div>
+        <div class="concept-tag"><div class="ct-label">Hidden size</div><div class="ct-val">32 memory units</div></div>
+        <div class="concept-tag"><div class="ct-label">Output</div><div class="ct-val">Softmax PMF (4 classes)</div></div>
+        <div class="concept-tag"><div class="ct-label">Training</div><div class="ct-val">600 sequences, 30 epochs</div></div>
+      </div>
+      <div class="use-cases">
+        <div class="uc-title">Best traffic contexts</div>
+        <div class="uc-grid">
+          <div class="uc-chip best">&#x1F305; Morning Rush (7&ndash;10h)</div>
+          <div class="uc-chip best">&#x1F306; Evening Rush (17&ndash;20h)</div>
+          <div class="uc-chip good">&#x23F3; Any time-based pattern</div>
+        </div>
+      </div>
+      <div class="syllabus-section">
+        <div class="syl-title">&#x1F4A1; Concepts Used</div>
+        <ul class="concept-bullets">
+          <li><strong>Random Variables — M2 Topic 1</strong> — Each of the 6 timestep inputs to LSTM (speed, count, etc.) is a random variable sampled from traffic at that moment.</li>
+          <li><strong>Joint Distributions — M2 Topics 4&ndash;5</strong> — The 6-step window is a joint distribution over 6 dependent random variables — LSTM learns this joint structure end-to-end.</li>
+          <li><strong>Mathematical Expectation — M2 Topic 8</strong> — The LSTM hidden state is a weighted expectation over past inputs, continuously refined through training.</li>
+          <li><strong>Normal Distribution — M4 Topic 4</strong> — LSTM weights are initialised from a Normal distribution; gradient descent shifts them toward optimal values.</li>
+          <li><strong>Discrete PMF — M4 Topic 1</strong> — The Softmax layer converts LSTM's raw output scores into a discrete PMF over all 4 traffic states.</li>
+          <li><strong>Hypothesis Testing — M5 Topic 1</strong> — Training LSTM is iterative hypothesis testing: each update checks whether new weights better explain the observed traffic data.</li>
+        </ul>
+        <div class="syl-tags" style="display:none">
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Random Variables &mdash; each timestep is a random variable (Topic 1)</span>
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Joint Probability Distributions &mdash; sequence of dependent RVs (Topics 4&ndash;5)</span>
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Mathematical Expectation (Topic 8)</span>
+          <span class="syl-tag m4"><span class="mod-badge">M4</span> Normal Distribution &mdash; used in weight initialisation (Topic 4)</span>
+          <span class="syl-tag m4"><span class="mod-badge">M4</span> Probability Distributions &mdash; Softmax output is a discrete PMF (Topic 1)</span>
+          <span class="syl-tag m5"><span class="mod-badge">M5</span> Hypothesis Testing &mdash; model training is hypothesis testing on weights (Topic 1)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ BAYESIAN NETWORK ══ -->
+  <div class="algo-card ac-bayes">
+    <div class="ac-header">
+      <div class="ac-icon">&#x1F578;&#xFE0F;</div>
+      <div>
+        <div class="ac-title">Bayesian Network</div>
+        <div class="ac-sub">&#x22;Uses Bayes&rsquo; Theorem to reason about cause and effect.&#x22;</div>
+      </div>
+    </div>
+    <div class="ac-body">
+      <p>A Bayesian Network is a graph where arrows mean &ldquo;this causes that.&rdquo; Here: Weather, Time of Day, and Vehicle Density all cause Congestion. For each combination of inputs it stores a lookup table of probabilities (a <strong>Conditional Probability Table</strong>). This is literally Bayes&rsquo; Theorem from your syllabus applied to traffic.</p>
+      <div class="math-block mb-amber"><div class="math-label">Bayes&rsquo; Theorem in action (Module 2, Topic 7)</div>P(Congestion | Weather=rain, Time=rush, Density=high)
+        = P(rain, rush, high | Congestion) &times; P(Congestion)
+          &divide; P(rain, rush, high)
+&rarr; We read the answer directly from the CPT lookup table</div>
+      <p>The graph also uses <strong>Joint Probability</strong>: the full joint distribution over all four variables factors neatly along the graph arrows. No need to track every possible combination &mdash; the edges tell you which variables are independent of each other.</p>
+      <div class="math-block mb-amber"><div class="math-label">Joint distribution factorisation (Module 2, Topics 4&ndash;6)</div>P(Weather, Time, Density, Congestion)
+  = P(Weather) &times; P(Time) &times; P(Density) &times; P(Congestion | W, T, D)
+&rarr; Joint PMF factored using conditional independence</div>
+      <div class="concept-grid">
+        <div class="concept-tag"><div class="ct-label">Inputs</div><div class="ct-val">Weather, Time, Density</div></div>
+        <div class="concept-tag"><div class="ct-label">Inference</div><div class="ct-val">CPT lookup + normalise</div></div>
+        <div class="concept-tag"><div class="ct-label">Output</div><div class="ct-val">Posterior PMF (4 states)</div></div>
+        <div class="concept-tag"><div class="ct-label">Training</div><div class="ct-val">Expert-encoded CPTs</div></div>
+      </div>
+      <div class="use-cases">
+        <div class="uc-title">Best traffic contexts</div>
+        <div class="uc-grid">
+          <div class="uc-chip best">&#x1F327; Weather Events (rain/snow/fog)</div>
+          <div class="uc-chip best">&#x1F6A8; Accident Events</div>
+          <div class="uc-chip good">&#x1F4A1; When cause is known</div>
+        </div>
+      </div>
+      <div class="syllabus-section">
+        <div class="syl-title">&#x1F4A1; Concepts Used</div>
+        <ul class="concept-bullets">
+          <li><strong>Conditional Probability — M2 Topic 7</strong> — The Bayesian Network is entirely built from Conditional Probability Tables (CPTs): P(Congestion&nbsp;|&nbsp;Weather, Time, Density).</li>
+          <li><strong>Joint PMF — M2 Topic 4</strong> — The Bayesian Network stores the full joint distribution P(Weather, Time, Density, Congestion) factored along the graph arrows.</li>
+          <li><strong>Marginal Distributions — M2 Topic 6</strong> — The output P(Congestion) is a marginal distribution obtained by summing out Weather, Time, and Density via Variable Elimination.</li>
+          <li><strong>Mathematical Expectation — M2 Topic 8</strong> — The Bayesian Network computes expected congestion by weighting each state's probability with its corresponding value.</li>
+          <li><strong>Discrete Distributions — M4 Topic 1</strong> — Every node in the Bayesian Network is a discrete distribution; inference produces a discrete PMF over traffic states.</li>
+          <li><strong>Reliability — M7</strong> — The Bayesian Network's conditional independence structure mirrors fault-tree analysis in system reliability studied in Module 7.</li>
+        </ul>
+        <div class="syl-tags" style="display:none">
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Conditional Probability Distributions &mdash; the entire CPT (Topic 7)</span>
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Joint Probability Mass Functions &mdash; joint over all nodes (Topic 4)</span>
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Marginal Probability Distributions &mdash; Variable Elimination (Topic 6)</span>
+          <span class="syl-tag m2"><span class="mod-badge">M2</span> Mathematical Expectation (Topic 8)</span>
+          <span class="syl-tag m4"><span class="mod-badge">M4</span> Probability Distributions &mdash; each node is a discrete distribution (Topic 1)</span>
+          <span class="syl-tag m7"><span class="mod-badge">M7</span> Reliability &mdash; same conditional reasoning applies to system reliability</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ COMPARISON TABLE ══ -->
+  <div class="algo-compare">
+    <h2>&#x1F4CB; Side-by-Side Comparison</h2>
+    <div style="overflow-x:auto">
+    <table class="compare-table">
+      <thead><tr>
+        <th>Model</th><th>Key Probability Idea</th><th>Best When</th><th>Weakness</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="model-col">&#x1F500; Markov Chain</td>
+          <td>Conditional PMF P(next&nbsp;|&nbsp;now)</td>
+          <td><span class="badge-best">Night</span>&nbsp;<span class="badge-best">Normal</span></td>
+          <td>No memory beyond current state</td>
+        </tr>
+        <tr>
+          <td class="model-col">&#x1F333; Random Forest</td>
+          <td>Vote-fraction PMF, Gini = variance</td>
+          <td><span class="badge-best">Accident</span>&nbsp;<span class="badge-best">Weather</span></td>
+          <td>Snapshot only &mdash; no time awareness</td>
+        </tr>
+        <tr>
+          <td class="model-col">&#x1F9E0; LSTM</td>
+          <td>Softmax posterior over sequence of RVs</td>
+          <td><span class="badge-best">Morning Rush</span>&nbsp;<span class="badge-best">Evening Rush</span></td>
+          <td>Needs sequential data; ~2 s startup</td>
+        </tr>
+        <tr>
+          <td class="model-col">&#x1F578;&#xFE0F; Bayesian Net</td>
+          <td>Bayes&rsquo; Theorem &amp; Joint PMF factorisation</td>
+          <td><span class="badge-best">Weather</span>&nbsp;<span class="badge-best">Accident</span></td>
+          <td>CPTs manually written; fixed variables</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="ensemble-note">
+      <strong>&#x2728; Why combine all four?</strong>&nbsp; Each model is strong in different contexts. The ensemble picks context-specific weights and computes:<br><br>
+      <code>P_final = &Sigma;_m  w_m &middot; P_m</code> &nbsp;where &Sigma; w_m = 1.0<br><br>
+      This is a <strong>convex combination of probability distributions</strong> &mdash; the result is itself a valid PMF, giving calibrated confidence across all four traffic states. <strong style="color:#c7d2fe">This is Mathematical Expectation (Module 2, Topic 8) applied to model outputs.</strong>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ─── Shared helpers ────────────────────────────────────────────────────────
+const STATE_EMOJI  = {free:'🟢 Free Flow',   moderate:'🟡 Moderate',    heavy:'🟠 Heavy Traffic', jam:'🔴 Traffic Jam'};
+const BANNER_CLASS = {free:'banner-free',     moderate:'banner-moderate', heavy:'banner-heavy',     jam:'banner-jam'};
+const FILL_CLASS   = {free:'fill-free',       moderate:'fill-moderate',   heavy:'fill-heavy',       jam:'fill-jam'};
+const STATE_COLOR  = {free:'#22c55e',         moderate:'#eab308',         heavy:'#f97316',          jam:'#ef4444'};
+const STATE_LABELS = {free:'Free Flow',       moderate:'Moderate',        heavy:'Heavy',            jam:'Jam'};
+const STATE_ORDER  = ['free','moderate','heavy','jam'];
+const CTX_LABELS   = {
+  morning_rush:'🌅 Morning Rush', evening_rush:'🌆 Evening Rush',
+  night_low_traffic:'🌙 Night — Low Traffic', weather_event:'🌧 Weather Event',
+  accident_event:'🚨 Active Incident', normal_conditions:'✅ Normal Conditions'
+};
+const MODEL_NAMES  = {lstm:'LSTM Neural Net', random_forest:'Random Forest', markov:'Markov Chain', bayesian:'Bayesian Network'};
+
+function buildBanner(containerId, state, confidence) {
+  const el = document.getElementById(containerId);
+  el.className = 'state-banner ' + BANNER_CLASS[state];
+  el.innerHTML = `<div class="state-label">${STATE_EMOJI[state]}</div>
+    <div class="conf-line">Confidence: ${Math.round(confidence*100)}%</div>`;
+}
+
+function buildNL(spanId, text) {
+  document.getElementById(spanId).textContent = text;
+}
+
+function buildCtx(badgeId, ctx) {
+  document.getElementById(badgeId).textContent = 'Context: ' + (CTX_LABELS[ctx] || ctx);
+}
+
+function buildProbs(containerId, probs) {
+  let h = '';
+  STATE_ORDER.forEach(s => {
+    const pct = Math.round((probs[s]||0)*100);
+    h += `<div class="prob-row">
+      <div class="prob-lbl" style="color:${STATE_COLOR[s]}">${STATE_LABELS[s]}</div>
+      <div class="prob-track"><div class="prob-fill ${FILL_CLASS[s]}" style="width:${pct}%"></div></div>
+      <div class="prob-pct" style="color:${STATE_COLOR[s]}">${pct}%</div>
+    </div>`;
+  });
+  document.getElementById(containerId).innerHTML = h;
+}
+
+function buildWeights(containerId, weights) {
+  const maxW = Math.max(...Object.values(weights));
+  let h = '';
+  Object.entries(weights).sort((a,b)=>b[1]-a[1]).forEach(([m,w]) => {
+    const pct = Math.round(w*100);
+    const lead = w === maxW;
+    h += `<div class="wcard ${lead?'lead':''}">
+      <div class="wname">${MODEL_NAMES[m]||m}</div>
+      <div class="wval">${pct}% weight${lead?' ★':''}</div>
+      <div class="wbar"><div class="wbar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  });
+  document.getElementById(containerId).innerHTML = h;
+}
+
+// ─── Tab switching ─────────────────────────────────────────────────────────
+function switchTab(t) {
+  document.getElementById('tab-map').style.display    = t==='map'    ? 'flex'  : 'none';
+  document.getElementById('tab-manual').style.display = t==='manual' ? 'block' : 'none';
+  document.getElementById('tab-algo').style.display   = t==='algo'   ? 'block' : 'none';
+  document.getElementById('tbMap').classList.toggle('active',    t==='map');
+  document.getElementById('tbManual').classList.toggle('active', t==='manual');
+  document.getElementById('tbAlgo').classList.toggle('active',   t==='algo');
+  if (t==='map') setTimeout(()=>map.invalidateSize(),50);
+}
+
+// ─── Leaflet Map ───────────────────────────────────────────────────────────
+const map = L.map('map').setView([20,0],3);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'© OpenStreetMap contributors', maxZoom:19
+}).addTo(map);
+
+let marker = null;
+const panel = document.getElementById('map-panel');
+const hint  = document.getElementById('map-hint');
+
+map.on('click', async (e) => {
+  const {lat, lng} = e.latlng;
+
+  if (marker) marker.remove();
+  marker = L.circleMarker([lat,lng],{
+    radius:10, color:'#38bdf8', fillColor:'#38bdf8', fillOpacity:.35, weight:2
+  }).addTo(map);
+
+  hint.style.display = 'none';
+  panel.classList.remove('hidden');
+  document.getElementById('mp-loading').style.display = 'block';
+  document.getElementById('mp-content').style.display = 'none';
+  document.getElementById('mp-err').style.display     = 'none';
+
+  try {
+    const resp = await fetch(`/predict_from_map?lat=${lat}&lon=${lng}`, {method:'POST'});
+    if (!resp.ok) {
+      const e = await resp.json();
+      throw new Error(e.detail || 'Server error ' + resp.status);
+    }
+    const d = await resp.json();
+
+    // Road title
+    document.getElementById('mp-road').textContent   = d.road_name || 'Unknown Road';
+    document.getElementById('mp-coords').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+    buildBanner ('mp-banner',  d.predicted_state, d.confidence);
+    buildNL     ('mp-nl',      d.natural_language_summary);
+    buildCtx    ('mp-ctx',     d.context);
+    buildProbs  ('mp-probs',   d.final_probabilities);
+    buildWeights('mp-weights', d.model_weights);
+
+
+
+    marker.setStyle({color: STATE_COLOR[d.predicted_state], fillColor: STATE_COLOR[d.predicted_state]});
+    document.getElementById('mp-loading').style.display = 'none';
+    document.getElementById('mp-content').style.display = 'block';
+  } catch(err) {
+    document.getElementById('mp-loading').style.display = 'none';
+    document.getElementById('mp-err').style.display     = 'block';
+    document.getElementById('mp-err').textContent       = '⚠ ' + err.message;
+  }
+});
+
+// ─── Manual predict form ───────────────────────────────────────────────────
+let mState = 1;
+
+function mSelectState(n) {
+  [0,1,2,3].forEach(i => {
+    const el = document.getElementById('ms'+i);
+    el.className = 'state-btn';
+  });
+  document.getElementById('ms'+n).classList.add('s'+n);
+  mState = n;
+}
+
+function mUpdateHour(v) {
+  const h = parseInt(v), ap = h<12?'AM':'PM', h12 = h%12||12;
+  document.getElementById('m-hour-lbl').textContent = h12+':00 '+ap;
+}
+
+async function mPredict() {
+  const btn  = document.getElementById('m-btn');
+  const spin = document.getElementById('m-spinner');
+  const err  = document.getElementById('m-err');
+  err.style.display = 'none';
+  btn.disabled = true;
+  spin.style.display = 'block';
+  document.getElementById('m-result').style.display = 'none';
+
+  const payload = {
+    road_id:        parseInt(document.getElementById('m-road_id').value)||1,
+    avg_speed:      parseFloat(document.getElementById('m-avg_speed').value),
+    vehicle_count:  parseInt(document.getElementById('m-vehicle_count').value),
+    weather:        document.getElementById('m-weather').value,
+    accident:       document.getElementById('m-accident').checked,
+    hour:           parseInt(document.getElementById('m-hour').value),
+    previous_state: mState,
+  };
+
+  try {
+    const resp = await fetch('/predict_traffic', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) { const e=await resp.json(); throw new Error(e.detail||'Server error '+resp.status); }
+    const d = await resp.json();
+
+    buildBanner ('m-banner',  d.predicted_state, d.confidence);
+    buildNL     ('m-nl',      d.natural_language_summary);
+    buildCtx    ('m-ctx',     d.context);
+    buildProbs  ('m-probs',   d.final_probabilities);
+    buildWeights('m-weights', d.model_weights);
+
+    document.getElementById('m-result').style.display = 'block';
+    document.getElementById('m-result').scrollIntoView({behavior:'smooth', block:'start'});
+  } catch(e) {
+    err.textContent = '⚠ ' + e.message;
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    spin.style.display = 'none';
+  }
+}
+</script>
+</body>
+</html>
