@@ -8,6 +8,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+# Activate virtual environment if present
+if [ -f "$ROOT/.venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "$ROOT/.venv/bin/activate"
+fi
+
 echo "=================================================="
 echo "  Traffic AI — Context-Aware Ensemble System"
 echo "=================================================="
