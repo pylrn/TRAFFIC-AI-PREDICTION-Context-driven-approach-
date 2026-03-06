@@ -2,10 +2,11 @@
 TomTom + Open-Meteo Live Data Fetcher
 
 Given a lat/lon from a map click this module:
-  1. Calls TomTom Flow Segment API  → live speed, free-flow speed
-  2. Calls Open-Meteo              → current weather (free, no key needed)
-  3. Calls TomTom Reverse Geocode  → road / street name
-  4. Returns a dict ready to feed into TrafficRequest
+  1. Calls TomTom Flow Segment API     → live speed, free-flow speed
+  2. Calls TomTom Traffic Incidents API → real accidents / broken-down vehicles
+  3. Calls TomTom Reverse Geocode      → road / street name
+  4. Calls Open-Meteo                  → current weather (free, no key needed)
+  5. Returns a dict ready to feed into TrafficRequest
 
 Graceful degradation:
   If TOMTOM_API_KEY is not set the module falls back to Open-Meteo for
@@ -13,12 +14,18 @@ Graceful degradation:
   the UI still works for demos without a paid key.
 """
 
+import asyncio
 import hashlib
-import math
 import os
 from datetime import datetime, timezone
 
 import httpx
+
+# ---------------------------------------------------------------------------
+# TomTom incident icon categories that count as an accident
+# 1 = Accident, 14 = Broken Down Vehicle
+# ---------------------------------------------------------------------------
+_ACCIDENT_CATEGORIES = frozenset({1, 14})
 
 
 # ---------------------------------------------------------------------------
@@ -115,38 +122,67 @@ async def fetch_traffic_for_location(lat: float, lon: float) -> dict:
         return result
 
     # ------------------------------------------------------------------
-    # TomTom Flow Segment
+    # TomTom: Flow + Incidents + Reverse Geocode  (all in parallel)
     # ------------------------------------------------------------------
     try:
+        # Bounding box ~1 km around the point for incident search
+        delta = 0.01
+        bbox  = f"{lon - delta},{lat - delta},{lon + delta},{lat + delta}"
+
         async with httpx.AsyncClient(timeout=8) as client:
-            # Flow
-            flow_resp = await client.get(
-                f"https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json",
+            flow_task = client.get(
+                "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json",
                 params={"point": f"{lat},{lon}", "key": api_key},
             )
-            flow_resp.raise_for_status()
-            flow = flow_resp.json().get("flowSegmentData", {})
-
-            current_speed   = float(flow.get("currentSpeed",   50))
-            free_flow_speed = float(flow.get("freeFlowSpeed",  80))
-            tt_confidence   = float(flow.get("confidence",     0.5))
-
-            speed_ratio   = current_speed / max(free_flow_speed, 1)
-            vehicle_count = int((1 - speed_ratio) * 300 + 50)
-            prev_state    = (
-                0 if speed_ratio > 0.80 else
-                1 if speed_ratio > 0.60 else
-                2 if speed_ratio > 0.35 else 3
+            incidents_task = client.get(
+                "https://api.tomtom.com/traffic/services/5/incidentDetails",
+                params={
+                    "key":               api_key,
+                    "bbox":              bbox,
+                    "fields":            "{incidents{properties{iconCategory}}}",
+                    "timeValidityFilter": "present",
+                },
             )
-
-            # Reverse geocode
-            rev_resp = await client.get(
+            geocode_task = client.get(
                 f"https://api.tomtom.com/search/2/reverseGeocode/{lat},{lon}.json",
                 params={"key": api_key},
             )
-            rev_resp.raise_for_status()
+
+            flow_resp, inc_resp, rev_resp = await asyncio.gather(
+                flow_task, incidents_task, geocode_task
+            )
+
+        # --- Flow ---
+        flow_resp.raise_for_status()
+        flow            = flow_resp.json().get("flowSegmentData", {})
+        current_speed   = float(flow.get("currentSpeed",  50))
+        free_flow_speed = float(flow.get("freeFlowSpeed", 80))
+        tt_confidence   = float(flow.get("confidence",    0.5))
+
+        speed_ratio   = current_speed / max(free_flow_speed, 1)
+        vehicle_count = int((1 - speed_ratio) * 300 + 50)
+        prev_state    = (
+            0 if speed_ratio > 0.80 else
+            1 if speed_ratio > 0.60 else
+            2 if speed_ratio > 0.35 else 3
+        )
+
+        # --- Incidents ---
+        accident        = False
+        incident_detail = None
+        if inc_resp.status_code == 200:
+            incidents = inc_resp.json().get("incidents", [])
+            for inc in incidents:
+                cat = inc.get("properties", {}).get("iconCategory", -1)
+                if cat in _ACCIDENT_CATEGORIES:
+                    accident        = True
+                    incident_detail = "accident" if cat == 1 else "broken_down_vehicle"
+                    break
+
+        # --- Reverse Geocode ---
+        road_name = "Unknown Road"
+        if rev_resp.status_code == 200:
             addresses = rev_resp.json().get("addresses", [])
-            road_name = "Unknown Road"
             if addresses:
                 addr      = addresses[0].get("address", {})
                 road_name = (
@@ -158,7 +194,7 @@ async def fetch_traffic_for_location(lat: float, lon: float) -> dict:
 
         road_id = abs(hash(f"{lat:.4f}{lon:.4f}")) % 100000
 
-        return {
+        result = {
             "road_id":           road_id,
             "road_name":         road_name,
             "lat":               lat,
@@ -169,11 +205,14 @@ async def fetch_traffic_for_location(lat: float, lon: float) -> dict:
             "hour":              hour,
             "day_of_week":       now.weekday(),
             "previous_state":    prev_state,
-            "accident":          False,
+            "accident":          accident,
             "free_flow_speed":   free_flow_speed,
             "tomtom_confidence": tt_confidence,
             "data_source":       "tomtom_live",
         }
+        if incident_detail:
+            result["incident_type"] = incident_detail
+        return result
 
     except Exception as exc:
         # TomTom failed despite having a key → synthetic fallback
