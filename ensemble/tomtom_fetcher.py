@@ -22,6 +22,13 @@ from datetime import datetime, timezone
 import httpx
 
 # ---------------------------------------------------------------------------
+# Raised when the clicked point has no road data (ocean, wilderness, etc.)
+# ---------------------------------------------------------------------------
+class NoRoadDataError(Exception):
+    """TomTom returned no flow data for this location."""
+
+
+# ---------------------------------------------------------------------------
 # TomTom incident icon categories that count as an accident
 # 1 = Accident, 14 = Broken Down Vehicle
 # ---------------------------------------------------------------------------
@@ -214,9 +221,13 @@ async def fetch_traffic_for_location(lat: float, lon: float) -> dict:
             result["incident_type"] = incident_detail
         return result
 
-    except Exception as exc:
-        # TomTom failed despite having a key → synthetic fallback
-        result = _synthetic_data(lat, lon, hour)
-        result["weather"]     = weather_label
-        result["data_source"] = f"simulated (tomtom error: {exc})"
-        return result
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 400:
+            raise NoRoadDataError(
+                "No road or traffic data found at this location. "
+                "Please click directly on a road or in a city."
+            ) from exc
+        # Other HTTP errors → re-raise so caller sees them
+        raise
+    except Exception:
+        raise

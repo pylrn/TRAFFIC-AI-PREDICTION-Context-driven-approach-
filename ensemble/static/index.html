@@ -641,8 +641,6 @@ map.on('click', async (e) => {
     buildProbs  ('mp-probs',   d.final_probabilities);
     buildWeights('mp-weights', d.model_weights);
 
-
-
     marker.setStyle({color: STATE_COLOR[d.predicted_state], fillColor: STATE_COLOR[d.predicted_state]});
     document.getElementById('mp-loading').style.display = 'none';
     document.getElementById('mp-content').style.display = 'block';

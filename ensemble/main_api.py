@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from ensemble.context_detector import TrafficContext, detect_context
 from ensemble.ensemble_engine import ModelPredictions, fuse
-from ensemble.tomtom_fetcher import fetch_traffic_for_location
+from ensemble.tomtom_fetcher import NoRoadDataError, fetch_traffic_for_location
 
 load_dotenv()
 
@@ -265,7 +265,10 @@ async def predict_traffic(req: TrafficRequest) -> PredictionResponse:
 @app.get("/fetch_location")
 async def fetch_location(lat: float, lon: float) -> dict:
     """Return raw live traffic + weather for a lat/lon (from map click)."""
-    return await fetch_traffic_for_location(lat, lon)
+    try:
+        return await fetch_traffic_for_location(lat, lon)
+    except NoRoadDataError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.post("/predict_from_map")
@@ -276,7 +279,10 @@ async def predict_from_map(lat: float, lon: float) -> dict:
     2. Run the full ensemble prediction.
     3. Return combined result with road name and live input.
     """
-    live = await fetch_traffic_for_location(lat, lon)
+    try:
+        live = await fetch_traffic_for_location(lat, lon)
+    except NoRoadDataError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
     req = TrafficRequest(
         road_id=        live["road_id"],
